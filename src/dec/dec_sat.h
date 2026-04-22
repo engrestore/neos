@@ -120,8 +120,10 @@ public:
 	//AppSAT attack data
 	iopair_t cur_dip, last_dip;
 	//For Multikey attack
-	std::vector<iopair_t> collected_dips;
-	std::vector<boolvec>  extracted_keys;
+	std::vector<iopair_t>  collected_dips;
+	std::vector<slit>      dip_tips;
+	std::vector<boolvec>   extracted_keys;
+	std::vector<int>       dip_key_map;
 	uint banned_keys = 0;
 	id converge = 0;
 
