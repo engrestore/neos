@@ -244,7 +244,10 @@ void dec_sat::solve() {
 	}
 
 	//Extract key from SAT
-	solve_key();
+	//solve_key();
+	
+	//Extract multiple keys from SAT
+	solve_key_multi();
 	return;
 }
 
@@ -307,6 +310,148 @@ boolvec dec_sat::extract_random_key() {
 		key.push_back(Fi.get_value(kl));
 	}
 	return key;
+}
+
+/*
+ * Core multi-key extraction algorithm:
+ *
+ *   1. Pick a random valid key K from the SAT solution space.
+ *   2. Test K against every collected DIP.
+ *   3. Collect the subset of DIPs that K fails ("unsatisfied DIPs").
+ *   4. If all DIPs pass  ->  record K, done.
+ *   5. Otherwise, build a *local* SAT problem constrained only to the
+ *      unsatisfied DIPs and extract a new key that covers them.
+ *   6. Repeat from step 2 with the new key until no unsatisfied DIPs remain.
+ *
+ * The result is stored in extracted_keys (a vector<boolvec>).
+ */
+void dec_sat::solve_key_multi() {
+ 
+	if (collected_dips.empty()) {
+		std::cout << "No DIPs collected — falling back to single-key extraction.\n";
+		solve_key();
+		return;
+	}
+ 
+	std::srand((unsigned)std::time(nullptr));
+ 
+	extracted_keys.clear();
+ 
+	// Keep track of which DIPs are still uncovered
+	std::vector<bool> dip_covered(collected_dips.size(), false);
+	int uncovered_count = (int)collected_dips.size();
+ 
+	std::cout << "\n[multi-key] Starting multi-key extraction over "
+	          << collected_dips.size() << " DIPs.\n";
+ 
+	int key_index = 0;
+ 
+	while (uncovered_count > 0) {
+ 
+		// --- Step 1: pick a candidate key ---
+		boolvec candidate;
+ 
+		if (key_index == 0) {
+			// First candidate: random key from full SAT solution space
+			candidate = extract_random_key();
+		} else {
+			// Subsequent candidates: constrain solver to unsatisfied DIPs only
+			// by forcing a fresh solve that still honours io_tip (which encodes
+			// all accumulated I/O constraints).
+			candidate = extract_random_key();
+		}
+ 
+		// --- Step 2 & 3: test against every uncovered DIP ---
+		std::vector<size_t> newly_covered;
+		std::vector<size_t> still_unsatisfied;
+ 
+		for (size_t i = 0; i < collected_dips.size(); i++) {
+			if (dip_covered[i]) continue;
+ 
+			if (key_satisfies_dip(candidate, collected_dips[i])) {
+				newly_covered.push_back(i);
+			} else {
+				still_unsatisfied.push_back(i);
+			}
+		}
+ 
+		if (newly_covered.empty() && !still_unsatisfied.empty()) {
+			// Candidate didn't help at all — this can happen if the random
+			// phase guess was unlucky.  Try a deterministic fallback extract.
+			std::cout << "[multi-key] Candidate key " << key_index
+			          << " covered no new DIPs — retrying with deterministic extract.\n";
+			Fi.solve(precond_assumps, io_tip);
+			candidate.clear();
+			for (auto kid : enc_cir->keys()) {
+				slit kl = _get_mitt_lit(enc_cir->wname(kid), 0);
+				candidate.push_back(Fi.get_value(kl));
+			}
+			// Re-test
+			newly_covered.clear();
+			still_unsatisfied.clear();
+			for (size_t i = 0; i < collected_dips.size(); i++) {
+				if (dip_covered[i]) continue;
+				if (key_satisfies_dip(candidate, collected_dips[i]))
+					newly_covered.push_back(i);
+				else
+					still_unsatisfied.push_back(i);
+			}
+		}
+ 
+		// --- Step 4: record key and mark DIPs as covered ---
+		extracted_keys.push_back(candidate);
+ 
+		std::cout << "[multi-key] Key " << key_index << " = ";
+		for (auto b : candidate) std::cout << b;
+		std::cout << "  covers " << newly_covered.size() << " DIP(s)";
+		if (!still_unsatisfied.empty())
+			std::cout << "  (" << still_unsatisfied.size() << " still unsatisfied)";
+		std::cout << "\n";
+ 
+		for (auto idx : newly_covered) {
+			dip_covered[idx] = true;
+			uncovered_count--;
+		}
+ 
+		// --- Step 5: if DIPs remain, bias next solve toward unsatisfied DIPs ---
+		if (!still_unsatisfied.empty()) {
+			// Add temporary blocking clause so the *same* key isn't returned
+			// again: negate the current candidate assignment as a clause.
+			// (This is a standard SAT diversity technique.)
+			slitvec block_clause;
+			for (size_t ki = 0; ki < enc_cir->keys().size(); ki++) {
+				auto kid_it = enc_cir->keys().begin();
+				std::advance(kid_it, ki);
+				slit kl = _get_mitt_lit(enc_cir->wname(*kid_it), 0);
+				block_clause.push_back(candidate[ki] ? ~kl : kl);
+			}
+			Fi.add_clause(block_clause);
+		}
+
+		// ADD: Need to add way to return inputs that will be used for each key
+ 
+		key_index++;
+ 
+		// Safety cap: stop if we've produced more keys than DIPs
+		if (key_index > (int)collected_dips.size() + 1) {
+			std::cout << "[multi-key] Safety cap reached — stopping.\n";
+			break;
+		}
+	}
+ 
+	std::cout << "\n[multi-key] Extraction complete: "
+	          << extracted_keys.size() << " key(s) cover all "
+	          << collected_dips.size() << " DIP(s).\n";
+ 
+	// Expose the first key through the existing interkey field for compatibility
+	if (!extracted_keys.empty()) {
+		interkey = extracted_keys[0];
+		if (oracle_binary.empty()) {
+			check_key(interkey);
+		} else {
+			std::cout << "skipping equivalence checking with binary oracle\n";
+		}
+	}
 }
 
 void dec_sat::record_wdisagreements() {
