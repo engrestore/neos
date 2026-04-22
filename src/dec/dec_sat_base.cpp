@@ -223,6 +223,7 @@ void dec_sat::solve() {
 		print_stats(iteration);
 
 		dp.y = query_oracle(dp.x);
+		collected_dips.push_back(dp);
 
 		if (collect_disagreements)
 			record_wdisagreements();
