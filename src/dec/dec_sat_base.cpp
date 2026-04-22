@@ -278,6 +278,37 @@ bool dec_sat::key_satisfies_dip(const boolvec& key, const iopair_t& dp) {
 	return true;
 }
 
+/*
+ * Extract a random satisfying key from the current SAT solver state.
+ * Randomness is achieved by asserting random phase assumptions on key literals,
+ * then solving; falls back to the default solution if randomized solve fails.
+ */
+boolvec dec_sat::extract_random_key() {
+	boolvec key;
+ 
+	// Build random phase assumptions over key[0] literals
+	slitvec rand_assumps = {io_tip};
+	for (auto kid : enc_cir->keys()) {
+		slit kl = _get_mitt_lit(enc_cir->wname(kid), 0);
+		// Randomly flip polarity to diversify solutions
+		bool phase = (std::rand() & 1);
+		rand_assumps.push_back(phase ? kl : ~kl);
+	}
+ 
+	// Try solving with random phases; fall back to unconstrained if UNSAT
+	bool ok = Fi.solve(rand_assumps);
+	if (!ok) {
+		// Random assignment was infeasible — solve without phase hints
+		Fi.solve(precond_assumps, io_tip);
+	}
+ 
+	for (auto kid : enc_cir->keys()) {
+		slit kl = _get_mitt_lit(enc_cir->wname(kid), 0);
+		key.push_back(Fi.get_value(kl));
+	}
+	return key;
+}
+
 void dec_sat::record_wdisagreements() {
 	// assumes Fi has already been solved with a DIP
 	id2boolmap smap0, smap1;
