@@ -248,6 +248,36 @@ void dec_sat::solve() {
 	return;
 }
 
+/*
+ * Simulate a candidate key against a single DIP (input/output pair).
+ * Returns true if the key produces the correct output for dp.x -> dp.y.
+ */
+bool dec_sat::key_satisfies_dip(const boolvec& key, const iopair_t& dp) {
+	id2boolmap simmap;
+ 
+	// Set primary inputs
+	int xi = 0;
+	for (auto xid : enc_cir->inputs()) {
+		simmap[xid] = dp.x[xi++];
+	}
+ 
+	// Set key bits
+	int ki = 0;
+	for (auto kid : enc_cir->keys()) {
+		simmap[kid] = key[ki++];
+	}
+ 
+	enc_cir->simulate_comb(simmap);
+ 
+	// Compare simulated outputs against oracle outputs
+	int yi = 0;
+	for (auto yid : enc_cir->outputs()) {
+		if (simmap.at(yid) != dp.y[yi++])
+			return false;
+	}
+	return true;
+}
+
 void dec_sat::record_wdisagreements() {
 	// assumes Fi has already been solved with a DIP
 	id2boolmap smap0, smap1;
