@@ -165,9 +165,6 @@ double dec_sat::solve_exact(const circuit& sim_ckt, const circuit& enc_ckt){
 
 }
 
-
-
-
 void dec_sat::_prepare_sat_attack() {
 
 	// cleanup sat solver
@@ -262,66 +259,6 @@ void dec_sat::solve() {
 	return;
 }
 
-/*
- * Simulate a candidate key against a single DIP (input/output pair).
- * Returns true if the key produces the correct output for dp.x -> dp.y.
- */
-bool dec_sat::key_satisfies_dip(const boolvec& key, const iopair_t& dp) {
-	id2boolmap simmap;
- 
-	// Set primary inputs
-	int xi = 0;
-	for (auto xid : enc_cir->inputs()) {
-		simmap[xid] = dp.x[xi++];
-	}
- 
-	// Set key bits
-	int ki = 0;
-	for (auto kid : enc_cir->keys()) {
-		simmap[kid] = key[ki++];
-	}
- 
-	enc_cir->simulate_comb(simmap);
- 
-	// Compare simulated outputs against oracle outputs
-	int yi = 0;
-	for (auto yid : enc_cir->outputs()) {
-		if (simmap.at(yid) != dp.y[yi++])
-			return false;
-	}
-	return true;
-}
-
-/*
- * Extract a random satisfying key from the current SAT solver state.
- * Randomness is achieved by asserting random phase assumptions on key literals,
- * then solving; falls back to the default solution if randomized solve fails.
- */
-boolvec dec_sat::extract_random_key() {
-	boolvec key;
- 
-	// Build random phase assumptions over key[0] literals
-	slitvec rand_assumps = {io_tip};
-	for (auto kid : enc_cir->keys()) {
-		slit kl = _get_mitt_lit(enc_cir->wname(kid), 0);
-		// Randomly flip polarity to diversify solutions
-		bool phase = (std::rand() & 1);
-		rand_assumps.push_back(phase ? kl : ~kl);
-	}
- 
-	// Try solving with random phases; fall back to unconstrained if UNSAT
-	bool ok = Fi.solve(rand_assumps);
-	if (!ok) {
-		// Random assignment was infeasible — solve without phase hints
-		Fi.solve(precond_assumps, io_tip);
-	}
- 
-	for (auto kid : enc_cir->keys()) {
-		slit kl = _get_mitt_lit(enc_cir->wname(kid), 0);
-		key.push_back(Fi.get_value(kl));
-	}
-	return key;
-}
 
 void dec_sat::record_wdisagreements() {
 	// assumes Fi has already been solved with a DIP
