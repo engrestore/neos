@@ -168,7 +168,7 @@ public:
 
 	//Multi-Key attack
 	bool    key_satisfies_dip(const boolvec& key, const iopair_t& dp);
-	boolvec extract_random_key();
+	boolvec extract_key_for_dip(int dip_idx);
 	void    solve_key_multi();
 
 	// find dip
