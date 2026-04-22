@@ -119,6 +119,9 @@ public:
 
 	//AppSAT attack data
 	iopair_t cur_dip, last_dip;
+	//For Multikey attack
+	std::vector<iopair_t> collected_dips;
+	std::vector<boolvec>  extracted_keys;
 	uint banned_keys = 0;
 	id converge = 0;
 
@@ -160,6 +163,11 @@ public:
 	void add_knownkeys_to_solver();
 
 	void solve();
+
+	//Multi-Key attack
+	bool    key_satisfies_dip(const boolvec& key, const iopair_t& dp);
+	boolvec extract_random_key();
+	void    solve_key_multi();
 
 	// find dip
 	virtual int solve_for_dip(iopair_t& dp);
