@@ -209,7 +209,6 @@ void dec_sat::solve() {
 	collected_dips.clear();
 	dip_tips.clear();
 	extracted_keys.clear();
-	dip_key_map.clear();
  
 	//SAT attack Loop
 	while ( true ) {
@@ -563,7 +562,7 @@ bool dec_sat::key_satisfies_dip(const boolvec& key, const iopair_t& dp) {
 	}
 	return true;
 }
-
+ 
 // ---------------------------------------------------------------------------
 // extract_key_for_dip
 //
@@ -607,7 +606,7 @@ boolvec dec_sat::extract_key_for_dip(int dip_idx) {
 	}
 	return key;
 }
-
+ 
 // ---------------------------------------------------------------------------
 // solve_key_multi
 //
@@ -633,10 +632,9 @@ void dec_sat::solve_key_multi() {
 	std::srand((unsigned)std::time(nullptr));
  
 	extracted_keys.clear();
-	dip_key_map.clear();
-	dip_key_map.resize(collected_dips.size(), -1); // -1 = uncovered
  
 	int total_dips = (int)collected_dips.size();
+	std::vector<bool> dip_covered(total_dips, false);
 	int uncovered_count = total_dips;
  
 	std::cout << "\n[multi-key] Starting multi-key extraction over "
@@ -648,57 +646,29 @@ void dec_sat::solve_key_multi() {
 	for (int i = 0; i < total_dips && uncovered_count > 0; i++) {
  
 		// Skip if already covered by a previously found key
-		if (dip_key_map[i] != -1)
-			continue;
+		if (dip_covered[i]) continue;
  
-		// --- Step 1: extract a key targeted at DIP i ---
+		// Extract a key targeted specifically at DIP i
 		boolvec candidate = extract_key_for_dip(i);
  
-		if (candidate.empty()) {
-			// extraction failed for this DIP — skip it
-			continue;
-		}
+		if (candidate.empty()) continue;
  
-		// --- Step 2: test candidate against ALL uncovered DIPs ---
-		std::vector<int> covered_now;
- 
+		// Test candidate against all uncovered DIPs and mark those it covers
 		for (int j = 0; j < total_dips; j++) {
-			if (dip_key_map[j] != -1) continue; // already covered
- 
+			if (dip_covered[j]) continue;
 			if (key_satisfies_dip(candidate, collected_dips[j])) {
-				covered_now.push_back(j);
+				dip_covered[j] = true;
+				uncovered_count--;
 			}
 		}
  
-		// --- Step 3: assign this key to all DIPs it covers ---
+		// Record and print the key
 		extracted_keys.push_back(candidate);
- 
 		std::cout << "[multi-key] Key " << key_index << " = ";
 		for (auto b : candidate) std::cout << b;
-		std::cout << "  covers DIP(s): ";
- 
-		for (int idx : covered_now) {
-			dip_key_map[idx] = key_index;
-			uncovered_count--;
-			std::cout << idx << " ";
-		}
 		std::cout << "\n";
  
-		// If this key didn't even cover DIP i itself (can happen
-		// if the circuit is partially constrained and simulation
-		// disagrees with SAT), warn and leave DIP i for later
-		if (std::find(covered_now.begin(), covered_now.end(), i)
-		        == covered_now.end()) {
-			std::cout << "[multi-key] WARNING: key " << key_index
-			          << " did not satisfy its target DIP " << i
-			          << " — will retry.\n";
-			// un-assign the key index increment so we retry DIP i
-			// on the next outer loop iteration
-			dip_key_map[i] = -1;
-			uncovered_count++;
-		}
- 
-		// --- Step 4: block this key so next call returns something different ---
+		// Block this key so the next DIP gets a different one
 		slitvec block_clause;
 		int ki = 0;
 		for (auto kid : enc_cir->keys()) {
@@ -716,28 +686,20 @@ void dec_sat::solve_key_multi() {
 		}
 	}
  
-	// --- Final report ---
-	std::cout << "\n[multi-key] Extraction complete: "
-	          << extracted_keys.size() << " key(s) cover "
-	          << (total_dips - uncovered_count) << " / "
-	          << total_dips << " DIP(s).\n";
+	// Summary — just the keys
+	std::cout << "\n[multi-key] Done: " << extracted_keys.size()
+	          << " key(s) extracted.\n";
  
-	std::cout << "\n[multi-key] DIP-to-key assignment:\n";
-	for (int i = 0; i < total_dips; i++) {
-		std::cout << "  DIP " << i << " -> ";
-		if (dip_key_map[i] == -1) {
-			std::cout << "UNCOVERED\n";
-		} else {
-			std::cout << "Key " << dip_key_map[i] << " = ";
-			for (auto b : extracted_keys[dip_key_map[i]]) std::cout << b;
-			std::cout << "\n";
-		}
+	std::cout << "\n[multi-key] Keys found:\n";
+	for (int i = 0; i < (int)extracted_keys.size(); i++) {
+		std::cout << "  Key " << i << ": ";
+		for (auto b : extracted_keys[i]) std::cout << b;
+		std::cout << "\n";
 	}
  
 	// Expose first key through interkey for backward compatibility
 	if (!extracted_keys.empty()) {
 		interkey = extracted_keys[0];
-		std::cout << "\n[multi-key] Verifying first key...\n";
 		if (oracle_binary.empty()) {
 			check_key(interkey);
 		} else {
