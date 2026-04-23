@@ -201,7 +201,7 @@ void dec_sat::_prepare_sat_attack() {
 }
 
 void dec_sat::solve() {
-
+ 
 	_init_handlers();
 	_prepare_sat_attack();
  
@@ -231,16 +231,19 @@ void dec_sat::solve() {
  
 		get_inter_key();
  
+		// Save tip BEFORE adding this DIP's constraint.
+		// Solving with tip_before enforces all previous DIPs
+		// but NOT this one — giving the solver freedom to find
+		// a key targeted at this specific DIP independently.
+		slit tip_before = io_tip;
+ 
 		// Record this DIP's constraint into Fi.
 		// After this call, io_tip encodes all DIPs seen so far.
 		create_ioconstraint(dp, iovecckt);
  
-		// Store the DIP and the tip literal that represents
-		// the constraint for this specific DIP alone.
-		// We build a fresh per-DIP tip by solving with only
-		// this DIP's constraint active (stored as current io_tip).
+		// Store DIP with its INDEPENDENT tip (before accumulation)
 		collected_dips.push_back(dp);
-		dip_tips.push_back(io_tip);
+		dip_tips.push_back(tip_before);
  
 		if (settled_keys_detect != 0 && iteration % settled_keys_period == 0) {
 			if (find_settled_keys() == 1)
